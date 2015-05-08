@@ -1,0 +1,247 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DC Circulator bus - DDOT API Samples</title>
+    <link href="/css/bootstrap.css" rel="stylesheet">
+    <link href="/css/site.css" rel="stylesheet">
+
+    <script src="/scripts/modernizr-2.6.2.js"></script>
+</head>
+<body>
+
+    <div class="navbar navbar-inverse navbar-fixed-top">
+        <div class="container">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="index.html">DDOT API Samples</a>
+            </div>
+            <div class="navbar-collapse collapse">
+                <ul class="nav navbar-nav">
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="about.html">About</a></li>
+                    <li><a href="contact.html">Contact</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="container body-content">
+
+        <div class="row">
+            <h2 class="span12">DC Circulator bus</h2>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4" style="min-height: 600px; max-height: 600px; overflow: scroll;">
+                <h3>Select route: </h3>
+                <select data-bind="options: routes,
+                           optionsText: 'RouteName',
+                           value: selectedRoute,
+                           optionsCaption: 'Select route...'"></select><br/>
+
+                <h3 data-bind="visible: routeDirections().length > 0">Route directions:</h3>
+                <ul data-bind="foreach: routeDirections, visible: routeDirections().length > 0">
+                    <li>
+                        <div>
+                            from: <span data-bind="text: FromStopName"></span><br/>
+                            to: <span data-bind="text: ToStopName"></span><br/>
+                            <input class="checkbox" type="checkbox" data-bind="value: routeDisplayed(),
+                                                      checked: routeDisplayed, attr: { id: (DirectionId + 'route') }"/>
+                            <label data-bind="attr: {for: (DirectionId + 'route') }">Display route</label>
+                            <input class="checkbox" type="checkbox" data-bind="value: busesDisplayed(),
+                                                      checked: busesDisplayed, attr: { id: (DirectionId + 'buses') }"/>
+                            <label data-bind="attr: {for: (DirectionId + 'buses') }">Display buses</label>
+
+                        </div>
+                    </li>
+                </ul>
+            </div>
+            <div id="map-canvas" class="col-md-8" style="min-height: 600px; min-width: 400px; background: grey;">
+
+            </div>
+        </div>
+
+        <hr>
+        <footer>
+            <p>© 2015 - EastBanc Technologies LLC</p>
+        </footer>
+    </div>
+
+    <script src="scripts/jquery-1.10.2.js"></script>
+    <script src="scripts/bootstrap.js"></script>
+    <script src="scripts/respond.js"></script>
+    <script src="scripts/knockout-3.3.0.debug.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp"></script>
+
+    <script>
+        $(document).ready(function () {
+            // setup view-model for this page
+            function vm() {
+                var self = this;
+
+                // view-model properties
+                self.routes = ko.observableArray([]);
+                self.selectedRoute = ko.observable();
+                self.routeDirections = ko.observableArray([]);
+
+                // show route direction polyline on the map
+                var showDirection = function (directionId) {
+                    // locate direction in full route info using directionId
+                    var fullDirection = $.grep(self.selectedRoute().fullRouteInfo.Directions, function (item) { return item.DirectionId == directionId; })[0].DirectionVariants[0];
+                    if (!fullDirection.directionPath) {
+                        // map coordinates form json to google LatLng objects
+                        var pathCoordinates = $.map(fullDirection.Shape.Points, function (point) { return new google.maps.LatLng(point.Lat, point.Lon); });
+                        // create polyline
+                        var directionPath = new google.maps.Polyline({
+                            path: pathCoordinates,
+                            geodesic: true,
+                            strokeColor: '#FF0000', // TODO: change color for differnt routes/directions
+                            strokeOpacity: 1.0,
+                            strokeWeight: 2
+                        });
+                        fullDirection.directionPath = directionPath; // store polyline if need to hide/show it in the future
+                    }
+                    fullDirection.directionPath.setMap(self.map); // show polyline
+                }
+
+                // hide route direction polyline from the map
+                var hideDirection = function (directionId) {
+                    // locate direction in full route info using directionId
+                    var fullDirection = $.grep(self.selectedRoute().fullRouteInfo.Directions, function (item) { return item.DirectionId == directionId; })[0].DirectionVariants[0];
+                    fullDirection.directionPath.setMap(null); // hide polyline
+                }
+
+                // callback on display route direction click
+                var displayRoute = function (display, item) {
+                    var routeDirection = item;
+                    if (display) {
+                        // load full route info
+                        if (!self.selectedRoute().fullRouteInfo) {
+                            $.getJSON("https://ddot.azure-api.net/transit/FullRouteInfo?routeId=" + self.selectedRoute().RouteId + "&format=json&subscription-key=05068b58f5c14963b6cffa734b80e355", function (data) {
+                                self.selectedRoute().fullRouteInfo = data;
+                                showDirection(routeDirection.DirectionId);
+                            });
+                        } else {
+                            showDirection(routeDirection.DirectionId);
+                        }
+                    } else {
+                        hideDirection(routeDirection.DirectionId);
+                    }
+                }
+
+                // show Circulator buses for selected route direction on the map
+                var showBuses = function (direction) {
+                    // create markers
+                    if (!direction.busMarkers) {
+                        var markers = $.map(direction.busesInfo.Vehicles, function (vehicle) {
+                            // create marker info window
+                            var infowindow = new google.maps.InfoWindow({
+                                content: $("<div/>")
+                                            .append($("<div style='font-weight: bold;'/>").text(vehicle.VehicleId))
+                                            .append($("<div/>").text("Route name: " + vehicle.Trip.RouteName))
+                                            .append($("<div/>").text("Headsign: " + vehicle.Trip.Headsign)).html()
+                            });
+                            // create marker
+                            var marker = new google.maps.Marker({
+                                position: new google.maps.LatLng(vehicle.Lat, vehicle.Lon),
+                                map: self.map,
+                                title: vehicle.VehicleId
+                            });
+                            // google event listener to open info window on marker click
+                            google.maps.event.addListener(marker, 'click', function () {
+                                if (self.currentInfoWindow)
+                                    self.currentInfoWindow.close();
+                                infowindow.open(self.map, marker);
+                                self.currentInfoWindow = infowindow;
+                            });
+                            return marker;
+                        });
+                        // save markers in direction object
+                        direction.busMarkers = markers;
+                    } else {
+                        // markers already create - just put them on the map
+                        $.map(direction.busMarkers, function (marker) { marker.setMap(self.map); });
+                    }
+                }
+
+                // hide Circulator buses for selected route direction from the map
+                var hideBuses = function (direction) {
+                    $.map(direction.busMarkers, function (marker) { marker.setMap(null); });
+                }
+
+                // callback on display route
+                var displayBuses = function (display, item) {
+                    var routeDirection = item;
+                    if (display) {
+                        // load buses on direction
+                        if (!routeDirection.busesInfo) {
+                            $.getJSON("https://ddot.azure-api.net/transit/CurrentVehiclesOnDirection?directionId=" + routeDirection.DirectionId + "&includingScheduled=false&format=json&subscription-key=05068b58f5c14963b6cffa734b80e355", function (data) {
+                                routeDirection.busesInfo = data;
+                                showBuses(routeDirection);
+                            });
+                        } else {
+                            showBuses(routeDirection);
+                        }
+                    } else {
+                        hideBuses(routeDirection);
+                    }
+                }
+
+
+                // subscribe on route select - show list of route directions
+                self.selectedRoute.subscribe(function (route) {
+                    if (self.selectedRoute()) {
+                        self.routeDirections.removeAll();
+                        // map out each direction to observable list item
+                        $.map(self.selectedRoute().DirectionVariants, function (variant) {
+                            // set callback for "Display route" button
+                            if (!variant.routeDisplayed) {
+                                variant.routeDisplayed = ko.observable(false);
+                                variant.routeDisplayed.subscribe(function (display) { displayRoute(display, variant); });
+                            }
+                            // set callback for "Display buses" button
+                            if (!variant.busesDisplayed) {
+                                variant.busesDisplayed = ko.observable(false);
+                                variant.busesDisplayed.subscribe(function (display) { displayBuses(display, variant); });
+                            }
+                            self.routeDirections.push(variant);
+                        });
+                    }
+                });
+
+                // constructor
+                var init = function () {
+                    // load routes
+                    var today = new Date();
+                    var d = today.getFullYear().toString() + "-" + today.getMonth().toString() + "-" + today.getDay().toString();
+                    $.getJSON("https://ddot.azure-api.net/transit/ActiveRoutes?serviceDate=" + d + "&format=json&subscription-key=05068b58f5c14963b6cffa734b80e355", function (data) {
+                        self.routes(data);
+                    });
+
+                    // initializa google maps
+                    var mapOptions = {
+                        zoom: 14,
+                        center: new google.maps.LatLng(38.898272, -77.036453)
+                    };
+                    self.map = new google.maps.Map(document.getElementById('map-canvas'), mapOptions);
+                    self.currentInfoWindow = null;
+                }
+
+                init(); // call constructor to initialize view model
+            }
+
+            // bind view model
+            ko.applyBindings(new vm());
+        });
+
+    </script>
+
+</body>
+</html>

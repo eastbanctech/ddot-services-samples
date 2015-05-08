@@ -1,0 +1,142 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capital Bikeshare - DDOT API Samples</title>
+    <link href="/css/bootstrap.css" rel="stylesheet">
+    <link href="/css/site.css" rel="stylesheet">
+
+    <script src="/scripts/modernizr-2.6.2.js"></script>
+</head>
+<body>
+
+    <div class="navbar navbar-inverse navbar-fixed-top">
+        <div class="container">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="index.html">DDOT API Samples</a>
+            </div>
+            <div class="navbar-collapse collapse">
+                <ul class="nav navbar-nav">
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="about.html">About</a></li>
+                    <li><a href="contact.html">Contact</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="container body-content">
+
+        <div class="row">
+            <h2 class="span12">Bikeshare location</h2>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4" style="min-height: 600px; max-height: 600px; overflow: scroll;">
+                <button data-bind="click: getStations">Get Bikeshare Stations</button>
+
+                <ul data-bind="foreach: location, visible: location().length > 0">
+                    <li>
+                        <div>
+                            Address: <span data-bind="text: Address"></span><br />
+                            Lat: <span data-bind="text: Lat"></span><br />
+                            Lon: <span data-bind="text: Lon"></span><br />
+                            Number Of Bikes: <span data-bind="text: NumberOfBikes"></span><br />
+                            Number Of Empty Docks: <span data-bind="text: NumberOfEmptyDocks"></span><br />
+                        </div>
+                    </li>
+                </ul>
+            </div>
+            <div id="map-canvas" class="col-md-8" style="min-height: 600px; min-width: 400px; background: grey;">
+
+            </div>
+        </div>
+
+        <hr>
+        <footer>
+            <p>© 2015 - EastBanc Technologies LLC</p>
+        </footer>
+    </div>
+
+    <script src="scripts/jquery-1.10.2.js"></script>
+    <script src="scripts/bootstrap.js"></script>
+    <script src="scripts/respond.js"></script>
+    <script src="scripts/knockout-3.3.0.debug.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp"></script>
+
+    <script>
+    $(document).ready(function () {
+        //console.log("ready");
+        function Station(data, marker) {
+            this.Address = ko.observable(data.Address);
+            this.Lat = ko.observable(data.Lat);
+            this.Lon = ko.observable(data.Lon);
+            this.NumberOfBikes = ko.observable(data.NumberOfBikes);
+            this.NumberOfEmptyDocks = ko.observable(data.NumberOfEmptyDocks);
+            this.Marker = marker;
+        }
+
+        function vm() {
+            var self = this;
+
+            // initializa google maps
+            var mapOptions = {
+                zoom: 14,
+                center: new google.maps.LatLng(38.898272, -77.036453)
+            };
+            self.map = new google.maps.Map(document.getElementById('map-canvas'), mapOptions);
+            self.currentInfoWindow = null;
+
+            // initialize location property as observable array
+            self.location = ko.observableArray([]);
+
+            // callback to retrieve data
+            self.getStations = function () {
+                $.getJSON("https://ddot.azure-api.net/sharedc/BicycleStations?format=json&subscription-key=05068b58f5c14963b6cffa734b80e355", function (allData) {
+                    // convert data to array of station objects
+                    var mappedStations = $.map(allData, function (item) {
+
+                        // google maps marker
+                        var infowindow = new google.maps.InfoWindow({
+                            content: $("<div/>")
+                                        .append($("<div style='font-weight: bold;'/>").text(item.Address))
+                                        .append($("<div/>").text("bikes available: " + item.NumberOfBikes)).html()
+                        });
+                        var marker = new google.maps.Marker({
+                            position: new google.maps.LatLng(item.Lat, item.Lon),
+                            map: self.map,
+                            title: item.Address
+                        });
+                        google.maps.event.addListener(marker, 'click', function () {
+                            if (self.currentInfoWindow)
+                                self.currentInfoWindow.close();
+                            infowindow.open(self.map, marker);
+                            self.currentInfoWindow = infowindow;
+                        });
+
+                        // station object
+                        var station = new Station(item, marker);
+                        marker.location = station;
+
+                        return station;
+                    });
+                    // set data in observable property
+                    self.location(mappedStations);
+                });
+            };
+
+        }
+
+        ko.applyBindings(new vm());
+    });
+    </script>
+
+</body>
+</html>
