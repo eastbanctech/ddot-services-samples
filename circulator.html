@@ -220,7 +220,7 @@
                 var init = function () {
                     // load routes
                     var today = new Date();
-                    var d = today.getFullYear().toString() + "-" + (today.getMonth() + 1).toString() + "-" + today.getDay().toString();
+                    var d = today.getFullYear().toString() + "-" + (today.getMonth() + 1).toString() + "-" + today.getDate().toString();
                     $.getJSON("https://ddot.azure-api.net/transit/ActiveRoutes?serviceDate=" + d + "&format=json&subscription-key=05068b58f5c14963b6cffa734b80e355", function (data) {
                         self.routes(data);
                     });
